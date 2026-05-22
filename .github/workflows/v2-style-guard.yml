@@ -35,3 +35,38 @@ jobs:
 
       - name: C-4 工程化小标题禁词
         run: bun scripts/lint-section-titles.ts --base "$BASE_REF"
+
+      - name: 探测 claude-code-cli 源码路径（gen:appendix 依赖）
+        id: src
+        run: |
+          if [ -n "${CLAUDE_CODE_SOURCE_PATH:-}" ] && [ -d "${CLAUDE_CODE_SOURCE_PATH}/.git" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLAUDE_CODE_SOURCE_PATH 未在 runner 上提供；跳过 gen:appendix / drift / check:orphans。docs/appendix/ 内容以提交版本为准，本地仍需运行 'bun run check:docs' 验证。"
+          fi
+
+      - name: 附录生成（gen:appendix）
+        if: steps.src.outputs.available == 'true'
+        run: bun run gen:appendix
+
+      - name: 附录无漂移（git diff 干净）
+        if: steps.src.outputs.available == 'true'
+        run: |
+          if ! git diff --exit-code -- docs/appendix/; then
+            echo "::error::docs/appendix 与脚本输出不一致，请在本地运行 'bun run gen:appendix' 后提交。"
+            exit 1
+          fi
+
+      - name: check-source-commits（源码引用闸）
+        run: bun run check:source-commits
+
+      - name: lint-no-fuzzy-quantifiers（禁用模糊量词）
+        run: bun run check:no-fuzzy
+
+      - name: lint-no-revision-codenames（禁用 v1/v2 修订代号）
+        run: bun run check:no-revision-codenames
+
+      - name: gen-module-matrix --check-orphans（孤儿模块闸）
+        if: steps.src.outputs.available == 'true'
+        run: bun run check:orphans
